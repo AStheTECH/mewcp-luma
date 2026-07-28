@@ -521,18 +521,18 @@ def register_events_tools(mcp: FastMCP) -> None:
             return _handle_request_exc(EventCancelResult, tlog, exc)
 
     # ------------------------------------------------------------------
-    # update_event (UPDATE — API returns an empty body, so no "after" resource is available;
-    # returns a confirmation of what was sent instead of a fabricated after-state. Call
-    # get_event afterward to see the resulting state.)
+    # update_event (UPDATE — the update API returns an empty body, so a real before/after
+    # pair is captured via discovery calls to the get_event endpoint: "before" prior to
+    # updating, "after" once the update has been applied.)
     # ------------------------------------------------------------------
     @mcp.tool(
         name="update_event",
         description=(
             "Updates an existing event's details. Only the fields you provide are changed — "
-            "others keep their current value. NOTE: this overwrites the current field values — "
-            "the API does not return the updated event, and the original state is not preserved "
-            "after the call, so the response is a confirmation of the fields that were sent "
-            "rather than a before/after snapshot. Call get_event afterward to see the resulting state."
+            "others keep their current value. NOTE: this overwrites the current field values, "
+            "and the original values are not preserved after the call — the response includes "
+            "both the before and after state (fetched via the same lookup as get_event) so you "
+            "have a full record of what changed."
         ),
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True),
     )
@@ -566,6 +566,14 @@ def register_events_tools(mcp: FastMCP) -> None:
         tlog = ToolLogger(logger, "update_event")
 
         try:
+            before_data, before_status, before_retry_after = service.api_request(
+                "GET", "/v1/events/get", params={"event_id": event_id},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if not (200 <= before_status < 300):
+                return _upstream_err(EventUpdateResult, tlog, before_status, before_data, before_retry_after)
+            before = EventGetData(**before_data)
+
             body = _body(
                 event_id=event_id, suppress_notifications=suppress_notifications,
                 can_register_for_multiple_tickets=can_register_for_multiple_tickets,
@@ -580,33 +588,41 @@ def register_events_tools(mcp: FastMCP) -> None:
                 timezone=timezone, tint_color=tint_color, visibility=visibility,
                 waitlist_status=waitlist_status,
             )
-            data, status, retry_after = service.api_request(
+            update_data, status, retry_after = service.api_request(
                 "POST", "/v1/events/update", body=body,
                 timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
             )
-            if 200 <= status < 300:
-                tlog.success()
-                updated_fields = sorted(k for k in body if k != "event_id")
-                return EventUpdateResult(
-                    success=True, statusCode=status,
-                    data=EventUpdateData(event_id=event_id, updated_fields=updated_fields),
-                )
-            return _upstream_err(EventUpdateResult, tlog, status, data, retry_after)
+            if not (200 <= status < 300):
+                return _upstream_err(EventUpdateResult, tlog, status, update_data, retry_after)
+
+            after_data, after_status, after_retry_after = service.api_request(
+                "GET", "/v1/events/get", params={"event_id": event_id},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if not (200 <= after_status < 300):
+                return _upstream_err(EventUpdateResult, tlog, after_status, after_data, after_retry_after)
+            after = EventGetData(**after_data)
+
+            tlog.success()
+            return EventUpdateResult(
+                success=True, statusCode=status,
+                data=EventUpdateData(before=before, after=after),
+            )
         except Exception as exc:
             return _handle_request_exc(EventUpdateResult, tlog, exc)
 
     # ------------------------------------------------------------------
-    # update_guest_status (UPDATE — API returns an empty body; see update_event note.)
+    # update_guest_status (UPDATE — the update API returns an empty body, so a real
+    # before/after pair is captured via discovery calls to the get_guest endpoint.)
     # ------------------------------------------------------------------
     @mcp.tool(
         name="update_guest_status",
         description=(
             "Updates a guest's status (approved, declined, pending_approval, or waitlist), "
             "optionally refunding them and/or emailing a personal message. NOTE: this overwrites "
-            "the guest's current status — the API does not return the updated guest, and the "
-            "original status is not preserved after the call, so the response is a confirmation "
-            "of the change that was sent rather than a before/after snapshot. Call get_guest "
-            "afterward to see the resulting state."
+            "the guest's current status, and the original status is not preserved after the "
+            "call — the response includes both the before and after state (fetched via the "
+            "same lookup as get_guest) so you have a full record of what changed."
         ),
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True),
     )
@@ -624,36 +640,53 @@ def register_events_tools(mcp: FastMCP) -> None:
             return _err(GuestStatusUpdateResult, tlog, "VALIDATION_ERROR", "message cannot be combined with send_email: false", 400)
 
         try:
+            before_data, before_status, before_retry_after = service.api_request(
+                "GET", "/v1/events/guests/get", params={"event_id": event_id, "id": guest_id},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if not (200 <= before_status < 300):
+                return _upstream_err(GuestStatusUpdateResult, tlog, before_status, before_data, before_retry_after)
+            before = GuestGetData(**before_data)
+
             body = _body(
                 event_id=event_id, guest_id=guest_id, status=status,
                 should_refund=should_refund, send_email=send_email, message=message,
             )
-            data, status_code, retry_after = service.api_request(
+            update_data, status_code, retry_after = service.api_request(
                 "POST", "/v1/events/guests/update-status", body=body,
                 timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
             )
-            if 200 <= status_code < 300:
-                tlog.success()
-                return GuestStatusUpdateResult(
-                    success=True, statusCode=status_code,
-                    data=GuestStatusUpdateData(event_id=event_id, guest_id=guest_id, status=status),
-                )
-            return _upstream_err(GuestStatusUpdateResult, tlog, status_code, data, retry_after)
+            if not (200 <= status_code < 300):
+                return _upstream_err(GuestStatusUpdateResult, tlog, status_code, update_data, retry_after)
+
+            after_data, after_status, after_retry_after = service.api_request(
+                "GET", "/v1/events/guests/get", params={"event_id": event_id, "id": guest_id},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if not (200 <= after_status < 300):
+                return _upstream_err(GuestStatusUpdateResult, tlog, after_status, after_data, after_retry_after)
+            after = GuestGetData(**after_data)
+
+            tlog.success()
+            return GuestStatusUpdateResult(
+                success=True, statusCode=status_code,
+                data=GuestStatusUpdateData(before=before, after=after),
+            )
         except Exception as exc:
             return _handle_request_exc(GuestStatusUpdateResult, tlog, exc)
 
     # ------------------------------------------------------------------
-    # update_guest_tickets (UPDATE — API returns an empty body; see update_event note.)
+    # update_guest_tickets (UPDATE — the update API returns an empty body, so a real
+    # before/after pair is captured via discovery calls to the get_guest endpoint.)
     # ------------------------------------------------------------------
     @mcp.tool(
         name="update_guest_tickets",
         description=(
             "Administratively adds complimentary tickets to or removes/invalidates tickets from "
             "an existing guest with no payment or refund processed. NOTE: this overwrites the "
-            "guest's ticket set — the API does not return the updated guest, and the original "
-            "ticket set is not preserved after the call, so the response is a confirmation of "
-            "the tickets added/removed rather than a before/after snapshot. Call get_guest "
-            "afterward to see the resulting state."
+            "guest's ticket set, and the original ticket set is not preserved after the call — "
+            "the response includes both the before and after state (fetched via the same lookup "
+            "as get_guest) so you have a full record of what changed."
         ),
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True),
     )
@@ -667,26 +700,39 @@ def register_events_tools(mcp: FastMCP) -> None:
         tlog = ToolLogger(logger, "update_guest_tickets")
 
         try:
+            before_data, before_status, before_retry_after = service.api_request(
+                "GET", "/v1/events/guests/get", params={"event_id": event_id, "id": guest_id},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if not (200 <= before_status < 300):
+                return _upstream_err(GuestTicketUpdateResult, tlog, before_status, before_data, before_retry_after)
+            before = GuestGetData(**before_data)
+
             body = _body(
                 event_id=event_id, guest_id=guest_id,
                 ticket_ids_to_remove=ticket_ids_to_remove, tickets_to_add=tickets_to_add,
                 send_email=send_email,
             )
-            data, status, retry_after = service.api_request(
+            update_data, status, retry_after = service.api_request(
                 "POST", "/v1/events/guests/update-tickets", body=body,
                 timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
             )
-            if 200 <= status < 300:
-                tlog.success()
-                return GuestTicketUpdateResult(
-                    success=True, statusCode=status,
-                    data=GuestTicketUpdateData(
-                        event_id=event_id, guest_id=guest_id,
-                        tickets_added=len(tickets_to_add) if tickets_to_add else 0,
-                        tickets_removed=len(ticket_ids_to_remove) if ticket_ids_to_remove else 0,
-                    ),
-                )
-            return _upstream_err(GuestTicketUpdateResult, tlog, status, data, retry_after)
+            if not (200 <= status < 300):
+                return _upstream_err(GuestTicketUpdateResult, tlog, status, update_data, retry_after)
+
+            after_data, after_status, after_retry_after = service.api_request(
+                "GET", "/v1/events/guests/get", params={"event_id": event_id, "id": guest_id},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if not (200 <= after_status < 300):
+                return _upstream_err(GuestTicketUpdateResult, tlog, after_status, after_data, after_retry_after)
+            after = GuestGetData(**after_data)
+
+            tlog.success()
+            return GuestTicketUpdateResult(
+                success=True, statusCode=status,
+                data=GuestTicketUpdateData(before=before, after=after),
+            )
         except Exception as exc:
             return _handle_request_exc(GuestTicketUpdateResult, tlog, exc)
 

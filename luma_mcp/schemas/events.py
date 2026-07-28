@@ -408,16 +408,15 @@ class InviteSendResult(ToolResult):
 # ---------------------------------------------------------------------------
 # update_event
 # ---------------------------------------------------------------------------
-# NOTE: the API returns an empty body on success (no updated event object), so
-# there is no genuine "after" state to report — this confirms the fields that
-# were sent rather than fabricating a resource snapshot. Call get_event
-# afterward to see the resulting state.
+# The update API returns an empty body on success, so "before" and "after"
+# are each captured via a discovery call to get_event's endpoint — once prior
+# to updating, once after.
 
 class EventUpdateData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    event_id: str | None = None
-    updated_fields: list[str] | None = None
+    before: EventGetData
+    after: EventGetData
 
 
 class EventUpdateResult(ToolResult):
@@ -427,14 +426,14 @@ class EventUpdateResult(ToolResult):
 # ---------------------------------------------------------------------------
 # update_guest_status
 # ---------------------------------------------------------------------------
-# NOTE: same empty-body situation as update_event — see note above.
+# Same empty-body situation as update_event — "before"/"after" are captured
+# via discovery calls to get_guest's endpoint.
 
 class GuestStatusUpdateData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    event_id: str | None = None
-    guest_id: str | None = None
-    status: str | None = None
+    before: GuestGetData
+    after: GuestGetData
 
 
 class GuestStatusUpdateResult(ToolResult):
@@ -444,15 +443,15 @@ class GuestStatusUpdateResult(ToolResult):
 # ---------------------------------------------------------------------------
 # update_guest_tickets
 # ---------------------------------------------------------------------------
-# NOTE: same empty-body situation as update_event — see note above.
+# Same empty-body situation as update_event — "before"/"after" are captured
+# via discovery calls to get_guest's endpoint (guest tickets are part of the
+# guest resource).
 
 class GuestTicketUpdateData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    event_id: str | None = None
-    guest_id: str | None = None
-    tickets_added: int | None = None
-    tickets_removed: int | None = None
+    before: GuestGetData
+    after: GuestGetData
 
 
 class GuestTicketUpdateResult(ToolResult):
