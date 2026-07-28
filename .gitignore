@@ -1,0 +1,13 @@
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+venv
+env/
+/pyproject.toml
+/.python-version
+*.lock
+*_api_docs/
