@@ -4,9 +4,8 @@
 import logging
 
 from fastmcp import FastMCP
-from starlette.responses import JSONResponse
-
 from fastmcp_credentials import CredentialMiddleware, HeaderCredentialBackend
+from starlette.responses import JSONResponse
 
 from luma_mcp.cli import parse_args
 from luma_mcp.config import BREAKING_CHANGES, SERVER_VERSION, configure_logging

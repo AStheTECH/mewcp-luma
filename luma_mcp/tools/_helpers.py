@@ -1,6 +1,7 @@
 """Shared error helpers for all tool modules."""
 
 import requests
+
 from ..logging_utils import ToolLogger
 from ..schemas import ToolError
 

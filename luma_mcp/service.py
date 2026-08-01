@@ -6,7 +6,7 @@ from typing import Any
 import requests
 from fastmcp_credentials import get_credentials
 
-from .config import LUMA_API_BASE, CONNECT_TIMEOUT, READ_TIMEOUT
+from .config import CONNECT_TIMEOUT, LUMA_API_BASE, READ_TIMEOUT
 
 logger = logging.getLogger("luma-mcp.service")
 
